@@ -1,0 +1,637 @@
+
+\documentclass{article}
+
+<<echo=FALSE>>=
+#Pacchetti da installare
+
+#options(repos = list(CRAN="http://cran.rstudio.com/"))
+#if (!requireNamespace("BiocManager", quietly = TRUE))
+    #install.packages("BiocManager")
+#BiocManager::install("graph")
+#BiocManager::install("RBGL")
+#BiocManager::install("Rgraphviz")
+
+#install.packages("SignifReg")
+#install.packages("gRim")
+#install.packages("gRbase")
+#install.packages("bnlearn")
+#install.packages("BBmisc")
+#install.packages("plyr")
+#install.packages("Rcmdr")
+#install.packages("lmtest")
+@
+
+
+\begin{document}
+
+\title{Studio di regressione lineare multipla e regressione logistica multipla}
+\author{Sofia Galante}
+\date{}
+\maketitle
+\newpage
+\section{Introduzione}
+
+Il dataset scelto come oggetto di studio \`e il dataset \textit{"birthwt"} presente nel package \textit{"MASS"}.
+Le variabili presenti in questo dataset sono:
+\begin{enumerate}
+\item{\textbf{low} - 1 se il bambino alla nascita ha un peso troppo basso (sotto 2,5 kg), 0 altrimenti;}
+\item{\textbf{age} - l'et\`a della madre espressa in anni;}
+\item{\textbf{lwt} - il peso della madre espresso in once alla fine dell'ultimo periodo mestruale;}
+\item{\textbf{race} - 1 se la madre \`e di razza bianca, 2 se \`e di razza nera e 3 se la razza \`e un'altra;}
+\item{\textbf{smoke} - 1 se la madre fuma, 0 altrimenti;}
+\item{\textbf{ptl} - numero di precedenti parti prematuri;}
+\item{\textbf{ht} - storia familiare di ipertensione (1 se \`e presente, 0 se \`e assente);}
+\item{\textbf{ui} - 1 se \`e presente irritabilit\`a uterina, 0 altrimenti;}
+\item{\textbf{ftv} - numero di visite dal ginecologo nel primo trimestre;}
+\item{\textbf{bwt} - peso alla nascita del bambino (in grammi).}
+\end{enumerate}
+
+Si noti inoltre che \textbf{low} \`e dicotomizzato da \textbf{bwt}.
+<<message=FALSE>>=
+library(BBmisc)
+
+data("birthwt", package = 'MASS')
+study <- birthwt
+study$bwt <- normalize(study$bwt)
+study$age <- normalize(study$age)
+study$lwt <- normalize(study$lwt)
+study$ftv <- normalize(study$ftv)
+study$ptl <- normalize(study$ptl)
+str(study)
+@
+Lo studio svolto si divide in due parti: uno studio di \textit{regressione lineare multipla} (in cui la variabile obiettivo \`e \textbf{bwt}) e uno studio di \textit{regressione logistica multipla} (in cui la variabile obiettivo \`e \textbf{low}).\newline
+Visto che le due variabili sono una la dicotomizzazione dell'altra, si \`e deciso di escludere la prima dallo studio della seconda e viceversa. Inoltre, ci\`o che ci si aspetta \`e che i due modelli finali di regressione utilizzino le stesse variabili o che \textbf{low} dipenda da un sottoinsieme di variabili utilizzate nello studio di \textbf{bwt}.
+
+\subsection{Creazione dei dataset per lo studio}
+Il primo passo che si \`e svolto per lo studio del database \`e la creazione di due variabili dummy per la variabile \textbf{race}.
+Essa assume infatti 3 valori distinti (1, 2, 3) a seconda della razza di appartenenza della madre. L'idea \`e stata quella di creare una variabile dummy per la \textbf{white race} e una variabile dummy per la \textbf{black race}.
+<<>>=
+study$white <- ifelse(study$race == '1', 1, 0)
+study$black <- ifelse(study$race == '2', 1, 0)
+@
+Una volta create e inserite le variabili dummy, si sono creati i due dataset corretti: uno per lo studio della \textit{regressione lineare multipla} (\textbf{bwt} come variabile obiettivo) e uno per lo studio della \textit{regressione logistica multipla} (\textbf{low} come obiettivo). Si noti che in entrambi i dataset \`e stata eliminata la variabile \textbf{race} e sostituita con le variabili dummy create in precedenza.
+<<>>=
+study <- as.data.frame(lapply(study, as.numeric))
+studyBWT <- study[c(10, 2, 3, 5, 6, 7, 8, 9, 11, 12)]
+studyLOW <- study[c(1, 2, 3, 5, 6, 7, 8, 9, 11, 12)]
+@
+\newpage
+\section{Studio del modello di regressione lineare multipla}
+
+\subsection{Dipendenza tra le variabili}
+
+In uno studio di regressione multipla \`e indispensabile osservare quali sono le variabili che effettivamente incidono sulla variabile obiettivo.\newline
+Una volta trovare le variabili di interesse, possiamo costruire il nostro modello di regressione.\newline
+Per compiere uno studio approfondito, si \`e deciso di eseguire tre analisi diverse:
+\begin{enumerate}
+\item{un'analisi utilizzando gli algoritmi di scelta del modello gi\`a integrati in R;}
+\item{un'analisi utilizzando i grafi non orientati;}
+\item{un'analisi utilizzando i gradi orientati.}
+\end{enumerate}
+
+\subsubsection{Algoritmi di scelta del modello}
+
+Per prima cosa, creiamo un modello in cui vengono utilizzate tutte le variabili.
+<<message=FALSE, warning=FALSE>>=
+attach(studyBWT)
+mq0 <- lm(bwt ~ age + lwt + smoke + ptl + ht + ui + ftv + white + black)
+summary(mq0)
+@
+Come si pu\`o vedere dal summary, questo modello presenta diverse variabili non significative. Queste variabili possono essere quindi eliminate dal modello, in modo da ottenerne uno migliore.\newline
+\newline
+Per svolgere una prima scrematura delle variabili, si \`e deciso di svolgere degli algoritmi di scelta del modello di direzione \textit{backward}.
+<<warning=FALSE>>=
+library(SignifReg)
+
+#Scelta del modello con criterio BIC, direzione backward
+mq1 <- SignifReg(mq0, criterion = "BIC", direction = "backward")
+summary(mq1)
+
+#Scelta del modello con criterio AIC, direzione backward
+mq2 <- SignifReg(mq0, criterion = "AIC", direction = "backward")
+summary(mq2)
+
+#Scelta del modello con criterio p-value, direzione backward
+mq3 <- SignifReg(mq0, criterion = "p-value", direction = "backward")
+summary(mq3)
+@
+Come si pu\`o osservare, le ricerche che utilizzano i criteri \textit{AIC} e \textit{BIC} hanno portato allo stesso risultato, in cui le uniche variabili rilevanti nel nostro studio sono: \textbf{lwt, smoke, ht, ui, white}.\newline
+La ricerca con criterio \textit{p-value}, invece, ha riportato un insieme di variabili sottoinsieme di quello precedente.\newline
+Per capire quale dei risultati \`e migliore, possiamo considerare i seguenti aspetti:
+\begin{enumerate}
+\item{la variabile eliminata dalla scelta con criterio \textit{p-value} \`e la variabile \textbf{smoke}, la quale ha una significativit\`a elevata nell'altro modello;}
+\item{il p-value della statistica F dell'ultimo modello \`e maggiore (e quindi meno significativo) rispetto all'altro;}
+\item{rispetto all'ultimo modello, nel primo vi \`e un aumento significativo dell'R quadro, sia aggiustato (da 0,1649 a 0,2169) che non (da 0,1827 a 0,2377).}
+\end{enumerate}
+Queste considerazioni, ci fanno intuire che il modello pi\`u accurato \`e quello trovato dai criteri \textit{AIC} e \textit{BIC}.\newline
+\newline
+La dipendenza di queste variabili l'una dall'altra ci viene suggerita anche dalla matrice di correlazione parziale.\newline
+<<message=FALSE>>=
+library(gRbase)
+
+S.BWT <- cov.wt(studyBWT, method = "ML")$cov
+PC.BWT <- cov2pcor(S.BWT)
+round(100*PC.BWT)
+@
+Maggiore \`e il valore della correlazione in valore assoluto tra due variabili, pi\`u queste sono dipendenti.\newline
+Come si pu\`o osservare dalla matrice la variabile obiettivo \textbf{bwt} presenta effettivamente valori elevati di correlazione solo con le variabili \textbf{lwt}, \textbf{smoke}, \textbf{ht}, \textbf{ui} e \textbf{white}. Questo corrobora l'ipotesi di modello ottenuta dalle ricerche svolte.\newline
+Si vuole inoltre far notare che il valore di correlazione tra \textbf{bwt} e \textbf{smoke} \`e uno dei pi\`u elevati, altra motivazione a favore della scelta del modello ottenuto tramite i criteri \textit{AIC} e \textit{BIC} rispetto a quello ottenuto con il criterio del \textit{p-value}.\newline
+\newline
+Inoltre, svolgendo gli stessi algoritmi ma in direzione \textit{forward}
+<<>>=
+mq4 <- lm(bwt~1)
+summary(mq4)
+
+#Scelta del modello con criterio BIC, direzione forward
+mq5 <- SignifReg(mq4, criterion = "BIC", direction = "forward",
+                 scope = formula(mq0))
+summary(mq5)
+
+#Scelta del modello con criterio AIC, direzione forward
+mq6 <- SignifReg(mq4, criterion = "AIC", direction = "forward",
+                 scope = formula(mq0))
+summary(mq6)
+
+#Scelta del modello con criterio p-value, direzione forward
+mq7 <- SignifReg(mq4, criterion = "p-value", direction = "forward",
+                 scope = formula(mq0))
+summary(mq7)
+@
+si nota che il modello restituito \`e sempre lo stesso e corrisponde a quello da noi scelto.
+
+\subsubsection{Grafi non orientati}
+
+La matrice di correlazione parziale utilizzata in precedenza non \`e l'unico strumento per osservare la dipendenza tra variabili: un altro metodo \`e quello di utilizzare un grafo non orientato.\newline
+\newline
+Nei grafi non orientati, i nodi rappresentano le variabili mentre gli archi indicano l'indipendenza condizionata o meno tra esse.\newline
+In particolare, date due variabili A e B, queste sono indipendenti condizionatamente data la variabile C se e solo se ogni cammino da A a B passa per C.\newline
+\newline
+Generiamo ora due differenti tipi di grafi, uno basato sul criterio \textit{AIC} e uno sul criterio \textit{BIC} e osserviamo quale dei due si avvicina pi\`u alle nostre previsioni.
+
+<<message=FALSE>>=
+library(gRim)
+
+graph.BWT <- cmod(~.^., data = studyBWT)
+
+#Grafo non orientato, AIC
+aic.BWT <- gRbase::stepwise(graph.BWT)
+plot(as(aic.BWT, "graphNEL"), "fdp")
+
+#Grafo non orientato, BIC
+bic.BWT <- gRbase::stepwise(graph.BWT, k = log(nrow(studyBWT)))
+plot(as(bic.BWT, "graphNEL"), "fdp")
+@
+Come possiamo osservare, il secondo grafo indica esattamente le stesse dipendenze che abbiamo trovato nella sezione precedente.
+Nel primo grafo invece vengono anche indicate delle dipendenze tra \textbf{bwt} e le variabili \textbf{age} e \textbf{ftv}.
+<<message=FALSE>>=
+attach(studyBWT)
+mq8 <- lm(bwt ~ smoke + ui + ht + lwt + white + age + ftv)
+summary(mq8)
+@
+Andando a osservare il modello di regressione lineare con tutte le variabili suggerite dal primo grafo si nota un leggero aumento dell'R-quadro, il quale per\`o non \`e significativo per indicare un miglioramento del modello.\newline
+Si pu\`o inoltre notare che le due variabili \textbf{age} e \textbf{ftv} non sono da considerarsi significative e il loro ingresso nel modello comporta anche un aumento del p-value della statistica F (da 1.345e-09 a 1.401e-08) e una diminuzione dell'R-quadro aggiustato (da 0.2169 a 0.2094).\newline
+\newline
+Ci\`o dimostra che il modello ottenuto in precedenza \`e ancora da considerarsi migliore e, quindi, possiamo concludere questa sezione notando come i due metodi fino ad ora utilizzati (analisi attraverso la scelta del modello e analisi con i grafi non orientati) restituiscano lo \textit{stesso modello} di regressione lineare.
+
+\subsubsection{DAG}
+
+Infine, svolgiamo l'analisi della dipendenza tra variabili utilizzando i \textit{DAG} (grafi orientati senza cicli).\newline
+\newline
+Cos\`i come i grafi non orientati, anche i DAG indicano l'indipendenza condizionata tra le variabili di un dataset.\newline
+A differenza del caso precedente, per\`o, gli archi orientati causano anche un ordinamento delle variabili.\newline
+\newline
+Generiamo adesso il DAG.
+<<message=FALSE>>=
+library(bnlearn)
+
+dag1.BWT <- hc(studyBWT)
+plot(as(amat(dag1.BWT), "graphNEL"))
+@
+Come si pu\`o osservare, il DAG mostra archi uscenti dal nodo \textbf{bwt} ma non entranti in esso.\newline
+Per evitare che ci\`o accada, possiamo inserire un ordinamento tra le variabili basato sulla nostra conoscenza pregressa.\newline
+In particolare, si \`e deciso di assegnare tre livelli di ordinamento:
+\begin{enumerate}
+\item{age, smoke, white, black, ht;}
+\item{lwt, ptl, ui}
+\item{ftv, bwt}
+\end{enumerate}
+
+<<message=FALSE>>=
+library(igraph)
+
+block <- c(3, 1, 2, 1, 2, 1, 2, 3, 1, 1)
+blM <- matrix(0, nrow = 10, ncol = 10)
+rownames(blM) <- colnames(blM) <- names(studyBWT)
+for (b in 2:3) blM[block==b, block<b] <- 1
+
+blackL <- data.frame(get.edgelist(as(blM, "igraph")))
+names(blackL) <- c("from", "to")
+
+dag2.BWT <- hc(studyBWT, blacklist = blackL)
+plot(as(amat(dag2.BWT), "graphNEL"))
+@
+Il DAG cos\`i ottenuto presenta degli archi coerenti con le nostre conoscenze di background.\newline
+Si noti adesso che quello che ci suggerisce questo grafo \`e che le uniche variabili che influenzano effettivamente il peso del bambino al momento del parto sono: il fatto che la madre fumi (\textbf{smoke}), la presenza di irritabilit\`a uterina (\textbf{ui}), il peso della madre alla fine dell'ultimo periodo mestruale (\textbf{lwt}), la storia familiare di ipertensione (\textbf{ht}) e il fatto che la madre sia di razza bianca o meno (\textbf{white}); esattamente lo stesso risultato ottenuto nelle altre due analisi.\newline
+\newline
+Quindi, il modello:
+<<>>=
+mq <- mq1
+summary(mq)
+@
+\`e quello che riteniamo sia il pi\`u accurato per svolgere una regressione lineare multipla su questo dataset.\newline
+\newline
+Osservando il risultato ottenuto, per\`o, \`e interessante considerare il fatto che la variabile \textbf{black} non sia significativa mentre la variabile \textbf{white} s\`i.\newline
+Questo pu\`o ossere dovuto sia ad un effettiva maggiore significativit\`a della variabile \textbf{white}, sia ad un problema intrinseco del dataset.\newline
+Nella prossima sezione si compie un'analisi del problema, per essere sicuri di aver considerato il modello giusto.
+
+\subsection{Studio della dipendenza del peso del bambino dalla razza della madre}
+
+<<message=FALSE>>=
+attach(studyBWT)
+mq9 <- lm(bwt ~ smoke + ui + ht + lwt + black + white)
+summary(mq9)
+@
+
+Dai risultati ottenuti in precedenza si \`e notato come la variabile \textbf{white} sia (altamente) significativa all'interno del modello di regressione, mentre la variabile \textbf{black} non lo sia.\newline
+Se proviamo a generare il modello di regressione lineare multipla inserendo anche la variabile \textbf{black}, si nota infatti un'abbassamento della significativit\`a di \textbf{white}, un'innalzamento del p-value della statistica F e un'abbassamento del R-quadro aggiustato; tutti elementi che portano a escludere l'importanza di questa variabile all'interno dello studio.\newline
+\newline
+Nonostante ci\`o, non si pu\`o escludere la possibilit\`a che questa non significativit\`a della variabile \textbf{black} sia data da un problema del dataset stesso.\newline
+Infatti, i motivi per cui questa variabile pu\`o non essere significativa nel nostro studio, sono due:
+\begin{enumerate}
+\item{Il peso delle nascite di figli di madri della razza nera e quella di "altro" sono molto simili tra loro, e quindi \`e importante distinguere solo tra madri di razza bianca e no; in questo caso l'analisi svolta \`e corretta.}
+\item{I dati ottenuti presentano una minoranza di madri della razza nera, che causa questo squilibrio e, in questo caso, l'analisi potrebbe non essere corretta.}
+\end{enumerate}
+Per essere sicuri di non trovarci nel secondo caso, si \`e quindi deciso di svolgere una breve analisi sulle variabili \textbf{white} e \textbf{black}, in modo da capire se, effettivamente, la seconda sia significativa o meno.\newline
+\newline
+Come prima cosa, vediamo quanti dati sono presenti per ogni valore della variabile \textbf{race}:
+<<>>=
+table(study$race)
+@
+Come si pu\`o vedere le variabili con race = 2 (cio\`e quelle di \textbf{black}) sono decisamente inferiori a quelle di \textbf{white} e altro.
+Per osservare se questo \`e o meno il motivo per cui vi \`e uno squilibrio, si pu\`o provare a studiare un dataset in cui il numero di madre delle tre razze coincide.\newline
+A questo proposito, \`e opportuno notare che a causa dell'esiguo numero di madri di razza nera, il dataset risultante avr\`a un numero di righe molto ridotto (solo 78). Per questo motivo, si \`e deciso di generare 5 diversi dataset e di osservare il modello di regressione lineare multipla risultante per tutti e 5, cos\`i da avere un quadro di insieme migliore.
+<<warning=FALSE, message=FALSE>>=
+studyRace <- list()
+
+for (i in 1:5){
+  studyWhite <- studyBWT[sample(which(studyBWT$white==1),26),]
+  studyBlack <- studyBWT[sample(which(studyBWT$black==1),26),]
+  studyOther <- studyBWT[sample(which(studyBWT$white==0&studyBWT$black==0),26),]
+  studyRace[[i]] <- rbind(studyWhite, studyBlack, studyOther)
+}
+
+mqrace <- list()
+mqrace1 <- list()
+
+for(i in 1:5){
+  attach(studyRace[[i]])
+  mqrace[[i]] <- lm(bwt ~ smoke + ui + ht + lwt + black + white)
+  mqrace1[[i]] <- lm(bwt ~ smoke + ui + ht + lwt + white)
+}
+
+summary(mqrace[[1]])
+summary(mqrace[[2]])
+summary(mqrace[[3]])
+summary(mqrace[[4]])
+summary(mqrace[[5]])
+@
+
+Come possiamo osservare, la variabile \textbf{black} continua a non essere particolarmente significativa (se non in rari casi).\newline
+Possiamo quindi concludere la nostra analisi sostenendo che la variabile obiettivo \textbf{bwt} \`e indipendente da \textbf{black} condizionatamente alle altre (e, in particolare, a \textbf{white} secondo il vecchio DAG) e quindi il modello da considerare corretto \`e quello trovato nella sezione precedente.\newline
+\newline
+Infine, un ultimo strumento che possiamo utilizzare per osservare la maggior accuratezza del modello senza la variabile \textbf{black} \`e il \textit{test del rapporto di verosimiglianza}.
+<<message=FALSE>>=
+library(lmtest)
+
+lrtest(mqrace1[[1]], mqrace[[1]])
+lrtest(mqrace1[[2]], mqrace[[2]])
+lrtest(mqrace1[[3]], mqrace[[3]])
+lrtest(mqrace1[[4]], mqrace[[4]])
+lrtest(mqrace1[[5]], mqrace[[5]])
+@
+Svolgendo un test per ogni dataset creato nella scorsa iterazione, possiamo osservare come non vi siano valori di p-value particolarmente significativi: questo significa che in nessun caso rifiutiamo l'ipotesi nulla e, quindi, non ci sono motivazioni per scegliere un modello pi\`u complesso al posto di quello dove la variabile \textbf{black} non \`e presente.
+
+\subsection{Svolgimento di alcuni test per confermare o meno l'ipotesi del modello}
+
+Dallo studio fino ad ora svolto, abbiamo l'ipotesi che il modello migliore sia:
+<<>>=
+summary(mq)
+@
+Ci\`o che vogliamo fare in questa sezione \`e uno studio finale su questo modello, per osservare quanto questo risulta corretto alla luce di diversi test.
+
+\subsubsection{Analisi dei residui}
+In un problema di regressione lineare multipla si ha come ipotesi che gli errori del modello siano distribuiti come una distribuzione normale standard.\newline
+Un modo per osservare se questa ipotesi \`e rispettata o meno, \`e quello di osservare i residui del modello trovato.\newline
+<<>>=
+e <- mq$residuals
+
+#somma dei residui
+sum(e)
+
+#mediata dei residui
+median(e)
+@
+Come si pu\`o osservare, la somma dei residui (molto vicina a zero) ci fa pensare che questi abbiano una distribuzione normale standard.\newline
+Inoltre, anche il valore della mediana \`e significativo: in una distribuzione normale standard la mediana coincide con la media, la quale \`e uguale a zero. Il valore della mediana di questi residui non \`e cos\`i vicino a zero come la loro somma, ma considerando il range di valori di questo vettore:
+<<>>=
+max(e)
+min(e)
+@
+si nota che si raggiungono anche valori molto "lontani" da zero. Di conseguenza l'ordine di $10^{-2}$ della mediana ci fa intuire una buona approssimazione alla distribuzione normale standard.\newline
+\newline
+Andiamo adesso a osservare anche il QQ plot tra i residui e i quantili di una distribuzione normale tenendo a mente che pi\`u i punti approssimano la retta bisettrice del primo quadrante del grafico, pi\`u allora l'approssimazione dei residui a una distribuzione normale standard \`e corretta.
+<<>>=
+qqnorm(e)
+@
+Il grafico conferma le nostre ipotesi.
+
+\subsubsection{Intervalli di confidenza}
+Un'ulteriore analisi che possiamo compiere \`e quella sugli intervalli di confidenza dei parametri trovati:
+<<>>=
+#Intervalli di confidenza al 95%
+confint(mq)
+@
+Osservare gli intervalli di confidenza pu\`o essere utile per confermare ulteriormente la significativit\`a delle variabili scelte nel modello.\newline
+Come si pu\`o notare, infatti, nessuna delle stime dei coefficienti delle variabili ha al proprio interno il valore 0: questo significa che la variabile \`e significativa per lo studio della variabile obiettivo, cos\`i come avevamo gi\`a osservato in precedenza.\newline
+\newline
+Se andiamo a osservare gli intervalli di confidenza di un modello che abbiamo scartato, invece, \`e possibile trovare intervalli che contengano il valore 0.
+<<>>=
+confint(mq0)
+@
+
+\subsection{Regressione lineare multipla con polinomi non di primo grado}
+
+Il modello ottenuto dallo studio fino ad ora svolto \`e:
+<<message=FALSE>>=
+attach(studyBWT)
+poly1 <- lm(bwt ~ lwt + smoke + ht + ui + white)
+summary(poly1)
+@
+
+Il modello cos\`i ottenuto \`e un modello di regressione lineare multipla con un polinomio di \textit{primo grado}.\newline
+Per completare lo studio, si \`e pensato di andare a osservare cosa accade nel caso in cui si provi a utilizzare polinomi di grado superiore al primo.\newline
+Visto che l'unica variabile non binaria presente nel modello \`e la variabile \textbf{lwt}, sar\`a solo questa a influire sul grado del polinomio.
+
+<<message=FALSE>>=
+attach(studyBWT)
+
+#Polinomio di secondo grado
+poly2 <- update(poly1, .~. + I(lwt^2))
+summary(poly2)
+
+#Polinomio di terzo grado
+poly3 <- update(poly2, .~. + I(lwt^3))
+summary(poly3)
+  
+#Polinomio di quarto grado
+poly4 <- update(poly3, .~. + I(lwt^4))
+summary(poly4)
+
+#Polinomio di quinto grado
+poly5 <- update(poly4, .~. + I(lwt^5))
+summary(poly5)
+@
+Osservando i risultati ottenuti, si nota che aumentando il grado del polinomio il modello di regressione lineare multipla ottenuto peggiora nettamente rispetto al precedente, sia in termini di significativit\`a della variabile \textbf{lwt} e delle sue potenze, sia per quanto riguarda la statistica F, sia per il valore dell'R-quadro aggiustato.
+\newline
+L'unica eccezione \`e il polinomio di terzo grado. Esso infatti presenta alcune caratteristiche particolari:
+\begin{enumerate}
+\item{il suo R-quadro aggiustato e il p-value della statistica F sono migliori rispetto al polinomio di grado precedente;}
+\item{la sua statistica F \`e meno significativa di quella del modello con il polinomio di grado 1, ma l'R-quadro aggiustato \`e maggiore, indicando un possibile miglioramento}
+\item{la variabile \textbf{lwt} alla terza \`e leggermente significativa, a differenza degli altri polinomi in cui qualsiasi potenza di \textbf{lwt} perde completamente la sua significativit\`a.}
+\end{enumerate}
+
+Per questo motivo, si fa uno studio pi\`u approfondito sulla possibilit\`a che il modello da trovare contenga effettivamente la variabile \textbf{lwt} alla terza al suo interno.\newline
+Per fare ci\`o, si studiano tutti i possibili polinomi dove questo accade.
+<<message=FALSE>>=
+attach(studyBWT)
+
+#Polinomio con variabile lwt solo alla terza
+poly3v1 <- lm(bwt ~ I(lwt^3) + smoke + ht + ui + white)
+summary(poly3v1)
+
+#Polinomio con variabile lwt alla terza e alla seconda
+poly3v2 <- update(poly3v1, .~. + I(lwt^2))
+summary(poly3v2)
+
+#Polinomio con variabile lwt alla terza e alla prima
+poly3v3 <- update(poly3v1, .~. + lwt)
+summary(poly3v3)
+@
+Osservando i risultati si osserva che il polinomio in cui la variabile lwt compare solo alla terza \`e nettamente migliore del nostro modello iniziale.\newline
+Esso infatti denota:
+\begin{enumerate}
+\item{un aumento della significativit\`a della variabile \textbf{lwt} (da * a **);}
+\item{una diminuizione del p-value della statistica F (da 1.345e-09 a 8.209e-10);}
+\item{un aumento dell'R-quadro aggiustato (da 0.2169 a 0.2213).}
+\end{enumerate}
+
+\newpage
+\section{Breve studio del modello di regressione logistica multipla}
+
+Essendo la variabile obiettivo di questo studio (\textbf{low}) generata da una dicotomizzazione della variabile obiettivo dello studio precedente (\textbf{bwt}), ci si aspetta che il modello di regressione di questo studio dipenda dalle stesse variabili trovate in precedenza o da un loro sottoinsieme.\newline
+
+<<message=FALSE>>=
+attach(studyLOW)
+
+fit <- glm(low ~ lwt + smoke + ht + ui + white, family = binomial)
+summary(fit)
+@
+
+Il modello ottenuto utilizzando le stesse variabili trovate durante lo studio precedente pare essere accurato.\newline
+Inoltre, osservando i coefficienti stimati in questo studio e in quello precedente:
+
+<<>>=
+BWT <- poly1$coefficients
+LOW <- fit$coefficients
+cf <- data.frame(BWT, LOW)
+cf
+@
+Si pu\`o notare che da un punto di vista di segno c'\`e coerenza: le variabili che aumentano il valore di \textbf{bwt} diminuiscono \textbf{low} e viceversa. Questo accade perch\'e \textbf{low} ha un valore "opposto" a \textbf{bwt}.\newline
+
+\subsection{Scelta delle variabili e confronto dei modelli utilizzando le tabelle di confusione}
+Eseguiamo adesso gli stessi passaggi eseguiti nello scorso studio, per osservare se l'insieme di variabili in questo modello pu\`o essere ridotto.\newline
+Come metodo di confronto, si \`e deciso di utilizzare le \textit{tabelle di confusione}: tabelle cio\`e in cui si evidenzia il numero di veri positivi (\textit{TP}), falsi positivi (\textit{FP}), falsi negativi (\textit{FN}) e veri negativi (\textit{TN}) predetti dal modello.\newline
+Per ogni tabella, si \`e deciso poi di calcolare la precisione e il recupero, dati dalle formule matematiche:\newline
+$precision = \frac{TP}{TP+FP}$
+\newline
+$recall = \frac{TP}{TP+FN}$
+\newline
+Considerando la natura del problema (un problema medico, in cui \`e pi\`u importante diminuire i falsi negativi pi\`u che i falsi positivi), maggiore sar\`a il recupero, pi\`u consideremo il modello accurato.\newline
+Per calcolare e mostrare a schermo la \textit{matrice di confusione}, il \textit{recupero} e la \textit{precisione} di un modello, si \`e scritta la seguente funzione:
+<<>>=
+fit.matrix <- function(model){
+  result <- table(fit$mode$low, fitted(model) > 0.5)
+  rownames(result) <- c("actual 0", "actual 1")
+  colnames(result) <- c("predicted 0", "predicted 1")
+  
+  return(result)
+}
+
+fit.recall.precision <- function(matrix){
+  rec = matrix[2,2]/(matrix[2,2]+matrix[2,1])
+  prec = matrix[2,2]/(matrix[2,2]+matrix[1,2])
+  recprec <- data.frame(rec, prec)
+  colnames(recprec) <- c("recall", "precision")
+
+  return(recprec)
+}
+@
+Per quanto riguarda il modello gi\`a trovato, si ha:
+<<>>=
+m <- fit.matrix(fit)
+rp <- fit.recall.precision(m)
+
+m
+rp
+@
+Di conseguenza, il \textit{recupero} non \`e molto elevato: infatti, solo nel 35\% dei casi i bambini che nascono con un peso basso vengono effettivamente diagnosticati.\newline
+Vediamo se riusciamo a trovare un modello con un \textit{recupero} migliore.
+
+\subsubsection{Algoritmi di scelta del modello}
+
+Per semplicit\`a, in questa sezione utilizziamo solo due algoritmi con criterio \textit{backward}.
+<<message=FALSE>>=
+library(Rcmdr)
+attach(studyLOW)
+
+fit0 <- glm(low ~ age + lwt + smoke + ptl + ht + ui + ftv + white + black,
+            family = binomial)
+
+#Scelta del modello con criterio BIC, direzione backward
+fit1 <- step(fit0, k = log(length(low)), direction = "backward")
+summary(fit1)
+
+#Scelta del modello con criterio AIC, direzione backward
+fit2 <- step(fit0, criterion = "AIC", direction = "backward")
+summary(fit2)
+
+@
+Si sono ottenuti due diversi modelli:
+\begin{enumerate}
+\item{il criterio \textit{BIC} ha restituito un modello in cui viene eliminata la variabile \textbf{ui} rispetto al modello da noi assunto corretto;}
+\item{il criterio \textit{AIC} ha generato un modello in cui si \`e aggiunta la variabile \textbf{ptl} rispetto al modello da noi assunto corretto; si noti che questa variabile non ha significativit\`a.}
+\end{enumerate}
+Studiamo quindi la \textit{matrice di confusione}, il \textit{recupero} e la \textit{precisione} dei due nuovi modelli ottenuti:
+
+<<>>=
+#Modello ottenuto con il criterio BIC
+m1 <- fit.matrix(fit1)
+rp1 <- fit.recall.precision(m1)
+
+m1
+rp1
+
+#Modello ottenuto con il criterio AIC
+m2 <- fit.matrix(fit2)
+rp2 <- fit.recall.precision(m2)
+
+m2
+rp2
+@
+Come possiamo osservare, la \textit{precisione} di questi due modelli \`e maggiore rispetto al nostro modello di partenza.\newline
+Per quanto riguarda il \textit{recupero}, invece, esso \`e minore del valore trovato in precedenza nel primo modello, ma rimane invariato nel secondo.
+Come abbiamo gi\`a detto, visto il contesto di questo studio, il \textit{recupero} \`e pi\`u importante da massimizzare rispetto alla \textit{precisione}, inoltre l'utilizzo di meno variabili \`e un vantaggio, per cui il modello iniziale \`e da considerarsi pi\`u accurato.
+
+\subsection{Grafi non orientati}
+Per quanto riguarda i grafi non orientati, si ha:
+<<>>=
+graph.LOW <- cmod(~.^., data = studyLOW)
+
+#Grafo non orientato, AIC
+aic.LOW <- gRbase::stepwise(graph.LOW)
+plot(as(aic.LOW, "graphNEL"), "fdp")
+
+#Grafo non orientato, BIC
+bic.LOW <- gRbase::stepwise(graph.LOW,  k = log(nrow(studyBWT)))
+plot(as(bic.LOW, "graphNEL"), "fdp")
+@
+Si nota che:
+\begin{enumerate}
+\item{il numero di variabili da cui \textbf{low} \`e dipendente secondo il grafo generato dal criterio \textit{AIC} \`e molto elevato: la variabile dipende da tutte le altre variabile tranne che da \textbf{black};}
+\item{osservando il grafo generato da \textit{BIC}, invece, si osserva che si sostituisce la variabile \textbf{ui} con la variabile \textbf{ptl} nel modello che fino ad ora consideriamo il pi\`u accurato.}
+\end{enumerate}
+Calcoliamo i modelli:
+<<message=FALSE>>=
+attach(studyLOW)
+
+fit3 <- glm(low ~ lwt + smoke + ht + ui + white + ptl + age + ftv,
+            family = binomial)
+summary(fit3)
+
+fit4 <- glm(low ~ lwt + smoke + ht + ptl + white, family = binomial)
+summary(fit4)
+@
+Per quanto riguarda il secondo modello, si osserva che la significativit\`a delle variabili \`e nettamente minore rispetto a quella delle variabili del nostro modello migliore. Il primo modello invece presenta una buona significativit\`a delle variabili.
+<<>>=
+#Modello ottenuto dal grafo AIC
+m3 <- fit.matrix(fit3)
+rp3 <- fit.recall.precision(m3)
+
+m3
+rp3
+
+#Modello ottenuto dal grafo BIC
+m4 <- fit.matrix(fit4)
+rp4 <- fit.recall.precision(m4)
+
+m4
+rp4
+@
+Si nota inoltre che il \textit{recupero} del modello generato dal grafo di tipo \textit{AIC} \`e maggiore (cos\`i come lo \`e anche la precisione).\newline
+Ciononostante, il modello prevede comunque un numero elevato di variabili non significative al suo interno per un aumento non elevato del \textit{recupero}.\newline
+Un'ulteriore studio che possiamo fare per capire quale dei due modelli sia migliore \`e il \textit{test del rapporto di verosimiglianza}:
+<<>>=
+lrtest(fit, fit3)
+@
+Osservando questo test, diventa chiaro che il modello iniziale \`e ancora da considerarsi superiore.
+
+\subsubsection{DAG}
+Infine, osserviamo il DAG.
+<<>>=
+block_ <- c(3, 1, 2, 1, 2, 1, 2, 3, 1, 1)
+blM_ <- matrix(0, nrow = 10, ncol = 10)
+rownames(blM_) <- colnames(blM_) <- names(studyLOW)
+for (b in 2:3) blM_[block_==b, block_<b] <- 1
+
+blackL_ <- data.frame(get.edgelist(as(blM_, "igraph")))
+names(blackL_) <- c("from", "to")
+
+dag1.LOW <- hc(studyLOW, blacklist = blackL_)
+plot(as(amat(dag1.LOW), "graphNEL"))
+@
+Diversamente dalle nostre aspettative, il DAG ottenuto \`e completamente diverso da quello precedente.\newline
+Inoltre solo una variabile sembra responsabile della variazione della variabile obiettivo: la variabile \textbf{ptl}, che non influiva nello scorso studio.\newline
+Proviamo a costruire il modello con questa variabile:
+<<message=FALSE>>=
+attach(studyLOW)
+
+fit5 <- glm(low ~ ptl)
+summary(fit5)
+@
+E ora osserviamone i valori di \textit{recupero} e \textit{precisione}:
+<<>>=
+m5 <- fit.matrix(fit5)
+rp5 <- fit.recall.precision(m5)
+
+m5
+rp5
+@
+Entrambi i valori sono inferiori a quelli ottenuti nei modelli precedenti, quindi questo modello viene scartato.
+
+\subsection{Variabile lwt alla terza e non alla prima}
+
+Come ultimo passo nello studio di questo modello, si \`e deciso di considerare il risultato ottenuto alla fine dell'analisi del modello di regressione lineare multipla: cio\`e il fatto che la variabile \textbf{lwt} pare essere pi\`u rilevante se posta al cubo.
+<<message=FALSE>>=
+attach(studyLOW)
+
+fit6 <- glm(low ~ I(lwt^3) + smoke + ht + ui + white, family = binomial)
+summary(fit6)
+
+m6 <- fit.matrix(fit6)
+rp6 <- fit.recall.precision(m6)
+
+m6
+rp6
+@
+Come si pu\`o osservare, quindi, la variabile \textbf{low} \`e meno significativa nel modello se posta al cubo (a differenza di come accadeva in precedenza) ma il \textit{recupero} aumenta, raggiungendo lo stesso del modello derivato dallo studio del grafo di criterio \textit{BIC}. Possiamo concludere la nostra analisi, quindi, osservando che questo ultimo modello permette di ricevere il \textit{recupero} pi\`u alto trovato in questo studio utilizzando meno variabili dell'altro.\newline
+\end{document}
